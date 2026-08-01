@@ -1,0 +1,99 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens. Light values are the default; dark values are *selected*
+ * steps for the dark surface, not an automatic flip. Declared under both the
+ * media query (OS setting) and [data-theme] (explicit toggle) so the toggle
+ * wins in either direction.
+ */
+:root {
+  color-scheme: light;
+
+  --page:            #f9f9f7;
+  --surface-1:       #fcfcfb;
+  --text-primary:    #0b0b0b;
+  --text-secondary:  #52514e;
+  --text-muted:      #898781;
+  --gridline:        #e1e0d9;
+  --baseline:        #c3c2b7;
+  --border:          rgba(11, 11, 11, 0.10);
+
+  /* Emphasis pair: the cheapest option is the accent, everything else recedes. */
+  --accent:          #2a78d6;
+  --deemphasis:      #898781;
+
+  --good:            #0ca30c;
+  --success-text:    #006300;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+
+    --page:           #0d0d0d;
+    --surface-1:      #1a1a19;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255, 255, 255, 0.10);
+
+    --accent:         #3987e5;
+    --deemphasis:     #6b6a64;
+
+    --good:           #0ca30c;
+    --success-text:   #0ca30c;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --page:           #0d0d0d;
+  --surface-1:      #1a1a19;
+  --text-primary:   #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted:     #898781;
+  --gridline:       #2c2c2a;
+  --baseline:       #383835;
+  --border:         rgba(255, 255, 255, 0.10);
+
+  --accent:         #3987e5;
+  --deemphasis:     #6b6a64;
+
+  --good:           #0ca30c;
+  --success-text:   #0ca30c;
+}
+
+body {
+  background: var(--page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Bars grow from zero on first paint and when inputs change. */
+.bar-fill {
+  transition: width 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill {
+    transition: none;
+  }
+}
+
+/* Number inputs: hide spinners, they fight with the slider pairing. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+input[type='range'] {
+  accent-color: var(--accent);
+}

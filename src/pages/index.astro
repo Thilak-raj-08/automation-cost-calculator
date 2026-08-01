@@ -1,0 +1,461 @@
+---
+import '../styles/global.css';
+import { LAST_VERIFIED, DEFAULTS, PLATFORMS } from '../config/pricing';
+import { compare, formatUSD, formatCount, type Inputs } from '../lib/calc';
+
+// Server-render the default scenario so the page is useful before (and without)
+// JavaScript. The client script mutates these same nodes rather than rebuilding
+// them, so this markup is the single source of truth for structure.
+const initialInputs: Inputs = { ...DEFAULTS, cycle: 'monthly' };
+const initial = compare(initialInputs);
+
+const barWidth = (price: number | null) =>
+  price === null || initial.maxPrice === 0
+    ? 0
+    : Math.max((price / initial.maxPrice) * 100, price === 0 ? 0 : 2);
+
+const title = 'Zapier vs Make vs n8n — Automation Cost Calculator';
+const description =
+  'Estimate your monthly cost on Zapier, Make.com and n8n from your real task volume and workflow count. Free, no signup.';
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>💸</text></svg>" />
+  </head>
+
+  <body>
+    <main class="mx-auto max-w-3xl px-5 py-10 sm:py-14">
+      <!-- ── Header ─────────────────────────────────────────────────── -->
+      <header class="mb-10">
+        <h1 class="text-3xl font-semibold tracking-tight sm:text-4xl">
+          Zapier vs Make vs n8n
+        </h1>
+        <p class="mt-2 text-lg" style="color: var(--text-secondary)">
+          What will automation actually cost you each month?
+        </p>
+      </header>
+
+      <!-- ── Inputs ─────────────────────────────────────────────────── -->
+      <section
+        class="rounded-xl border p-5 sm:p-6"
+        style="background: var(--surface-1); border-color: var(--border)"
+        aria-labelledby="inputs-heading"
+      >
+        <h2 id="inputs-heading" class="sr-only">Your usage</h2>
+
+        <div class="space-y-6">
+          <!-- Volume -->
+          <div>
+            <div class="flex flex-wrap items-baseline justify-between gap-2">
+              <label for="volume" class="text-sm font-medium">
+                Monthly task volume
+              </label>
+              <span class="text-xs" style="color: var(--text-muted)">
+                steps executed per month
+              </span>
+            </div>
+            <div class="mt-2 flex items-center gap-3">
+              <input
+                type="number"
+                id="volume"
+                min="0"
+                step="100"
+                value={DEFAULTS.monthlySteps}
+                class="w-32 rounded-lg border px-3 py-2 text-sm tabular-nums"
+                style="background: var(--page); border-color: var(--border); color: var(--text-primary)"
+              />
+              <input
+                type="range"
+                id="volume-slider"
+                min="0"
+                max="100"
+                value="0"
+                class="min-w-0 flex-1"
+                aria-label="Monthly task volume slider"
+              />
+            </div>
+            <p class="mt-2 text-xs" style="color: var(--text-muted)">
+              Count <strong>action steps</strong>, not workflow runs — this equals
+              Zapier tasks and Make operations.
+            </p>
+          </div>
+
+          <div class="grid gap-6 sm:grid-cols-2">
+            <!-- Active workflows -->
+            <div>
+              <label for="workflows" class="text-sm font-medium">
+                Active workflows
+              </label>
+              <input
+                type="number"
+                id="workflows"
+                min="1"
+                step="1"
+                value={DEFAULTS.activeWorkflows}
+                class="mt-2 w-full rounded-lg border px-3 py-2 text-sm tabular-nums"
+                style="background: var(--page); border-color: var(--border); color: var(--text-primary)"
+              />
+              <p class="mt-2 text-xs" style="color: var(--text-muted)">
+                Running simultaneously. Caps some n8n and free tiers.
+              </p>
+            </div>
+
+            <!-- Steps per workflow -->
+            <div>
+              <label for="steps" class="text-sm font-medium">
+                Avg. steps per workflow
+              </label>
+              <input
+                type="number"
+                id="steps"
+                min="1"
+                max="50"
+                step="1"
+                value={DEFAULTS.avgStepsPerWorkflow}
+                class="mt-2 w-full rounded-lg border px-3 py-2 text-sm tabular-nums"
+                style="background: var(--page); border-color: var(--border); color: var(--text-primary)"
+              />
+              <p class="mt-2 text-xs" style="color: var(--text-muted)">
+                n8n bills per whole run, so this changes its price a lot.
+              </p>
+            </div>
+          </div>
+
+          <!-- Billing cycle -->
+          <fieldset>
+            <legend class="text-sm font-medium">Billing</legend>
+            <div
+              class="mt-2 inline-flex rounded-lg border p-0.5"
+              style="border-color: var(--border)"
+            >
+              <label class="cursor-pointer">
+                <input type="radio" name="cycle" value="monthly" checked class="peer sr-only" />
+                <span
+                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium peer-checked:text-white"
+                  style="color: var(--text-secondary)"
+                  data-cycle-chip
+                >Monthly</span>
+              </label>
+              <label class="cursor-pointer">
+                <input type="radio" name="cycle" value="annual" class="peer sr-only" />
+                <span
+                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium peer-checked:text-white"
+                  style="color: var(--text-secondary)"
+                  data-cycle-chip
+                >Annual</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+      </section>
+
+      <!-- ── Verdict ────────────────────────────────────────────────── -->
+      <section
+        id="verdict"
+        class="mt-6 rounded-xl border px-5 py-4"
+        style="background: var(--surface-1); border-color: var(--border)"
+        aria-live="polite"
+      >
+        <p class="text-base sm:text-lg">
+          <span style="color: var(--text-secondary)">Cheapest for you:</span>
+          <strong id="verdict-name">{initial.winner?.platform.name ?? '—'}</strong>
+          <span id="verdict-price" class="tabular-nums">
+            {initial.winner ? `at ${formatUSD(initial.winner.price!)}/mo` : ''}
+          </span>
+        </p>
+        <p id="verdict-detail" class="mt-1 text-sm" style="color: var(--text-muted)">
+          {
+            initial.savingVsNext
+              ? `Saves ${formatUSD(initial.savingVsNext)}/mo versus the next cheapest option.`
+              : 'Enter your usage above.'
+          }
+        </p>
+      </section>
+
+      <!-- ── Bar chart ──────────────────────────────────────────────── -->
+      <section class="mt-8" aria-labelledby="chart-heading">
+        <h2 id="chart-heading" class="text-sm font-medium" style="color: var(--text-secondary)">
+          Estimated monthly cost
+        </h2>
+
+        <div class="mt-4 space-y-5">
+          {
+            initial.results.map((r) => (
+              <div data-row={r.platform.id}>
+                <div class="flex flex-wrap items-baseline justify-between gap-x-3">
+                  <span class="text-sm font-medium">{r.platform.name}</span>
+                  <span
+                    class="text-sm font-semibold tabular-nums"
+                    data-price
+                  >
+                    {r.price === null ? 'Custom quote' : formatUSD(r.price)}
+                  </span>
+                </div>
+
+                {/* Bar track. The fill is the only colored mark; identity comes
+                    from the label above it, never from color alone. */}
+                <div
+                  class="mt-1.5 h-2.5 w-full overflow-hidden rounded-[4px]"
+                  style="background: var(--gridline)"
+                >
+                  <div
+                    class="bar-fill h-full rounded-r-[4px]"
+                    data-bar
+                    style={`width: ${barWidth(r.price)}%; background: ${
+                      r.platform.id === initial.winner?.platform.id
+                        ? 'var(--accent)'
+                        : 'var(--deemphasis)'
+                    }`}
+                  />
+                </div>
+
+                <p class="mt-1.5 text-xs" style="color: var(--text-muted)" data-detail>
+                  {
+                    r.tier
+                      ? `${r.tier.name} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}` +
+                        (r.workflowBound ? ' · forced up by your workflow count' : '')
+                      : r.platform.aboveTopTier
+                  }
+                </p>
+              </div>
+            ))
+          }
+        </div>
+      </section>
+
+      <!-- ── Table view (accessibility relief + the real detail) ─────── -->
+      <section class="mt-10" aria-labelledby="table-heading">
+        <h2 id="table-heading" class="text-sm font-medium" style="color: var(--text-secondary)">
+          Breakdown
+        </h2>
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full min-w-[34rem] border-collapse text-sm">
+            <thead>
+              <tr style="color: var(--text-muted)">
+                <th class="border-b py-2 pr-3 text-left font-medium" style="border-color: var(--gridline)">Platform</th>
+                <th class="border-b py-2 pr-3 text-left font-medium" style="border-color: var(--gridline)">Plan</th>
+                <th class="border-b py-2 pr-3 text-right font-medium" style="border-color: var(--gridline)">You need</th>
+                <th class="border-b py-2 pr-3 text-right font-medium" style="border-color: var(--gridline)">Included</th>
+                <th class="border-b py-2 text-right font-medium" style="border-color: var(--gridline)">Per month</th>
+              </tr>
+            </thead>
+            <tbody>
+              {
+                initial.results.map((r) => (
+                  <tr data-trow={r.platform.id}>
+                    <td class="border-b py-2.5 pr-3 align-top" style="border-color: var(--gridline)">
+                      <span class="font-medium">{r.platform.name}</span>
+                      <span class="block text-xs" style="color: var(--text-muted)">
+                        {r.platform.tagline}
+                      </span>
+                    </td>
+                    <td class="border-b py-2.5 pr-3 align-top" style="border-color: var(--gridline)" data-tier>
+                      {r.tier?.name ?? '—'}
+                    </td>
+                    <td class="border-b py-2.5 pr-3 text-right align-top tabular-nums" style="border-color: var(--gridline)" data-need>
+                      {formatCount(r.neededUnits)}
+                    </td>
+                    <td class="border-b py-2.5 pr-3 text-right align-top tabular-nums" style="border-color: var(--gridline)" data-incl>
+                      {r.tier ? formatCount(r.tier.includedUnits) : '—'}
+                    </td>
+                    <td class="border-b py-2.5 text-right align-top font-semibold tabular-nums" style="border-color: var(--gridline)" data-tprice>
+                      {r.price === null ? 'Custom' : formatUSD(r.price)}
+                    </td>
+                  </tr>
+                ))
+              }
+            </tbody>
+          </table>
+        </div>
+        <p id="tier-notes" class="mt-3 space-y-1 text-xs" style="color: var(--text-muted)"></p>
+      </section>
+
+      <!-- ── Why the numbers differ ─────────────────────────────────── -->
+      <section class="mt-10 rounded-xl border p-5" style="background: var(--surface-1); border-color: var(--border)">
+        <h2 class="text-sm font-medium">Why these aren't apples to apples</h2>
+        <p class="mt-2 text-sm" style="color: var(--text-secondary)">
+          Zapier bills per <strong>action step</strong>, Make per <strong>module
+          operation</strong>, and n8n per <strong>whole workflow run</strong>. A
+          6-step workflow firing once costs ~6 Zapier tasks but only 1 n8n
+          execution — which is why the "avg. steps per workflow" input moves n8n's
+          price so much, and why comparing raw plan prices is misleading.
+        </p>
+        <ul class="mt-3 space-y-1.5 text-sm" style="color: var(--text-secondary)">
+          {
+            PLATFORMS.flatMap((p) =>
+              (p.caveats ?? []).map((c) => (
+                <li class="flex gap-2">
+                  <span aria-hidden="true" style="color: var(--text-muted)">·</span>
+                  <span><strong>{p.name}:</strong> {c}</span>
+                </li>
+              )),
+            )
+          }
+        </ul>
+      </section>
+
+      <!-- ── Footer ─────────────────────────────────────────────────── -->
+      <footer class="mt-10 border-t pt-5 text-xs" style="border-color: var(--gridline); color: var(--text-muted)">
+        <p>
+          Estimates only, for planning. Pricing snapshot last verified
+          <strong>{LAST_VERIFIED}</strong> — confirm against each vendor before
+          committing:
+          {
+            PLATFORMS.map((p, i) => (
+              <>
+                {i > 0 && ', '}
+                <a href={p.pricingUrl} target="_blank" rel="noopener noreferrer" class="underline">
+                  {p.name}
+                </a>
+              </>
+            ))
+          }.
+        </p>
+        <p class="mt-2">
+          Not affiliated with Zapier, Make.com or n8n. Excludes taxes, add-ons and
+          per-seat charges.
+        </p>
+      </footer>
+    </main>
+
+    <script>
+      import { compare, formatUSD, formatCount, type Inputs } from '../lib/calc';
+      import { PLATFORMS, DEFAULTS, type BillingCycle } from '../config/pricing';
+
+      const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
+
+      const volume = $<HTMLInputElement>('#volume');
+      const slider = $<HTMLInputElement>('#volume-slider');
+      const workflows = $<HTMLInputElement>('#workflows');
+      const steps = $<HTMLInputElement>('#steps');
+
+      // ── Log-scaled slider: 100 → 1,000,000, snapped to readable values ──
+      const MIN_LOG = Math.log10(100);
+      const MAX_LOG = Math.log10(1_000_000);
+
+      function sliderToVolume(pos: number): number {
+        const raw = 10 ** (MIN_LOG + (pos / 100) * (MAX_LOG - MIN_LOG));
+        const magnitude = 10 ** Math.floor(Math.log10(raw));
+        const step = magnitude / 2;
+        return Math.max(0, Math.round(raw / step) * step);
+      }
+
+      function volumeToSlider(v: number): number {
+        if (v <= 100) return 0;
+        const pos = ((Math.log10(v) - MIN_LOG) / (MAX_LOG - MIN_LOG)) * 100;
+        return Math.min(100, Math.max(0, pos));
+      }
+
+      function readInputs(): Inputs {
+        const cycle =
+          (document.querySelector<HTMLInputElement>('input[name="cycle"]:checked')
+            ?.value as BillingCycle) ?? 'monthly';
+        return {
+          monthlySteps: Math.max(0, Number(volume.value) || 0),
+          activeWorkflows: Math.max(1, Number(workflows.value) || 1),
+          avgStepsPerWorkflow: Math.min(50, Math.max(1, Number(steps.value) || 1)),
+          cycle,
+        };
+      }
+
+      function render() {
+        const inputs = readInputs();
+        const { results, winner, savingVsNext, maxPrice } = compare(inputs);
+
+        // Verdict
+        $('#verdict-name').textContent = winner?.platform.name ?? 'No published tier fits';
+        $('#verdict-price').textContent = winner
+          ? `at ${formatUSD(winner.price!)}/mo`
+          : '';
+        $('#verdict-detail').textContent = !winner
+          ? 'Every platform needs a custom enterprise quote at this volume.'
+          : savingVsNext && savingVsNext > 0
+            ? `Saves ${formatUSD(savingVsNext)}/mo versus the next cheapest option.`
+            : 'Tied with the next cheapest option.';
+
+        const notes: string[] = [];
+
+        for (const r of results) {
+          const row = document.querySelector(`[data-row="${r.platform.id}"]`)!;
+          const bar = row.querySelector<HTMLElement>('[data-bar]')!;
+          const isWinner = r.platform.id === winner?.platform.id;
+
+          // Bar geometry + emphasis color (winner accented, rest recede).
+          const pct =
+            r.price === null || maxPrice === 0
+              ? 0
+              : Math.max((r.price / maxPrice) * 100, r.price === 0 ? 0 : 2);
+          bar.style.width = `${pct}%`;
+          bar.style.background = isWinner ? 'var(--accent)' : 'var(--deemphasis)';
+
+          row.querySelector('[data-price]')!.textContent =
+            r.price === null ? 'Custom quote' : formatUSD(r.price);
+
+          row.querySelector('[data-detail]')!.textContent = r.tier
+            ? `${r.tier.name} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}` +
+              (r.workflowBound ? ' · forced up by your workflow count' : '')
+            : r.platform.aboveTopTier;
+
+          // Table
+          const trow = document.querySelector(`[data-trow="${r.platform.id}"]`)!;
+          trow.querySelector('[data-tier]')!.textContent = r.tier?.name ?? '—';
+          trow.querySelector('[data-need]')!.textContent = formatCount(r.neededUnits);
+          trow.querySelector('[data-incl]')!.textContent = r.tier
+            ? formatCount(r.tier.includedUnits)
+            : '—';
+          trow.querySelector('[data-tprice]')!.textContent =
+            r.price === null ? 'Custom' : formatUSD(r.price);
+
+          for (const n of r.notes) notes.push(`${r.platform.name}: ${n}`);
+        }
+
+        $('#tier-notes').textContent = notes.join('  ·  ');
+      }
+
+      // ── Wiring ──────────────────────────────────────────────────────
+      slider.value = String(volumeToSlider(DEFAULTS.monthlySteps));
+
+      slider.addEventListener('input', () => {
+        volume.value = String(sliderToVolume(Number(slider.value)));
+        render();
+      });
+
+      volume.addEventListener('input', () => {
+        slider.value = String(volumeToSlider(Number(volume.value) || 0));
+        render();
+      });
+
+      for (const el of [workflows, steps]) {
+        el.addEventListener('input', render);
+      }
+
+      for (const el of document.querySelectorAll('input[name="cycle"]')) {
+        el.addEventListener('change', () => {
+          syncCycleChips();
+          render();
+        });
+      }
+
+      // The chip background can't be a peer-variant (custom property), so set it here.
+      function syncCycleChips() {
+        for (const chip of document.querySelectorAll<HTMLElement>('[data-cycle-chip]')) {
+          const input = chip.parentElement!.querySelector<HTMLInputElement>('input')!;
+          chip.style.background = input.checked ? 'var(--accent)' : 'transparent';
+          chip.style.color = input.checked ? '#ffffff' : 'var(--text-secondary)';
+        }
+      }
+
+      syncCycleChips();
+      render();
+    </script>
+  </body>
+</html>
