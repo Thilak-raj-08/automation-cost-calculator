@@ -1,7 +1,13 @@
 ---
 import '../styles/global.css';
 import { LAST_VERIFIED, DEFAULTS, PLATFORMS } from '../config/pricing';
-import { compare, formatUSD, formatCount, type Inputs } from '../lib/calc';
+import {
+  compare,
+  formatUSD,
+  formatCount,
+  unpricedLabel,
+  type Inputs,
+} from '../lib/calc';
 
 // Server-render the default scenario so the page is useful before (and without)
 // JavaScript. The client script mutates these same nodes rather than rebuilding
@@ -13,6 +19,8 @@ const barWidth = (price: number | null) =>
   price === null || initial.maxPrice === 0
     ? 0
     : Math.max((price / initial.maxPrice) * 100, price === 0 ? 0 : 2);
+
+const platformsWithGaps = PLATFORMS.filter((p) => p.unverifiedPlans.length > 0);
 
 const title = 'Zapier vs Make vs n8n — Automation Cost Calculator';
 const description =
@@ -85,7 +93,7 @@ const description =
             </div>
             <p class="mt-2 text-xs" style="color: var(--text-muted)">
               Count <strong>action steps</strong>, not workflow runs — this equals
-              Zapier tasks and Make operations.
+              Zapier tasks and Make credits.
             </p>
           </div>
 
@@ -105,7 +113,8 @@ const description =
                 style="background: var(--page); border-color: var(--border); color: var(--text-primary)"
               />
               <p class="mt-2 text-xs" style="color: var(--text-muted)">
-                Running simultaneously. Caps some n8n and free tiers.
+                Running simultaneously. Only limits free tiers — n8n includes
+                unlimited workflows on every plan.
               </p>
             </div>
 
@@ -140,7 +149,7 @@ const description =
               <label class="cursor-pointer">
                 <input type="radio" name="cycle" value="monthly" checked class="peer sr-only" />
                 <span
-                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium peer-checked:text-white"
+                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium"
                   style="color: var(--text-secondary)"
                   data-cycle-chip
                 >Monthly</span>
@@ -148,7 +157,7 @@ const description =
               <label class="cursor-pointer">
                 <input type="radio" name="cycle" value="annual" class="peer sr-only" />
                 <span
-                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium peer-checked:text-white"
+                  class="block rounded-[6px] px-3 py-1.5 text-sm peer-checked:font-medium"
                   style="color: var(--text-secondary)"
                   data-cycle-chip
                 >Annual</span>
@@ -167,7 +176,9 @@ const description =
       >
         <p class="text-base sm:text-lg">
           <span style="color: var(--text-secondary)">Cheapest for you:</span>
-          <strong id="verdict-name">{initial.winner?.platform.name ?? '—'}</strong>
+          <strong id="verdict-name">
+            {initial.winner?.platform.name ?? 'Nothing we can price'}
+          </strong>
           <span id="verdict-price" class="tabular-nums">
             {initial.winner ? `at ${formatUSD(initial.winner.price!)}/mo` : ''}
           </span>
@@ -178,6 +189,19 @@ const description =
               ? `Saves ${formatUSD(initial.savingVsNext)}/mo versus the next cheapest option.`
               : 'Enter your usage above.'
           }
+        </p>
+        <p
+          id="partial-notice"
+          class="mt-2 text-sm"
+          style={`color: var(--text-secondary); display: ${initial.isPartial ? 'block' : 'none'}`}
+        >
+          ⚠︎ <span id="partial-text">
+            {
+              `Partial comparison — ${initial.unpriced.length} platform${
+                initial.unpriced.length === 1 ? '' : 's'
+              } could not be priced from verified data.`
+            }
+          </span>
         </p>
       </section>
 
@@ -193,11 +217,8 @@ const description =
               <div data-row={r.platform.id}>
                 <div class="flex flex-wrap items-baseline justify-between gap-x-3">
                   <span class="text-sm font-medium">{r.platform.name}</span>
-                  <span
-                    class="text-sm font-semibold tabular-nums"
-                    data-price
-                  >
-                    {r.price === null ? 'Custom quote' : formatUSD(r.price)}
+                  <span class="text-sm font-semibold tabular-nums" data-price>
+                    {r.price === null ? 'Not priced' : formatUSD(r.price)}
                   </span>
                 </div>
 
@@ -223,7 +244,7 @@ const description =
                     r.tier
                       ? `${r.tier.name} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}` +
                         (r.workflowBound ? ' · forced up by your workflow count' : '')
-                      : r.platform.aboveTopTier
+                      : `${unpricedLabel(r)} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}`
                   }
                 </p>
               </div>
@@ -238,7 +259,7 @@ const description =
           Breakdown
         </h2>
         <div class="mt-3 overflow-x-auto">
-          <table class="w-full min-w-[34rem] border-collapse text-sm">
+          <table class="w-full min-w-[36rem] border-collapse text-sm">
             <thead>
               <tr style="color: var(--text-muted)">
                 <th class="border-b py-2 pr-3 text-left font-medium" style="border-color: var(--gridline)">Platform</th>
@@ -262,13 +283,13 @@ const description =
                       {r.tier?.name ?? '—'}
                     </td>
                     <td class="border-b py-2.5 pr-3 text-right align-top tabular-nums" style="border-color: var(--gridline)" data-need>
-                      {formatCount(r.neededUnits)}
+                      {`${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}`}
                     </td>
                     <td class="border-b py-2.5 pr-3 text-right align-top tabular-nums" style="border-color: var(--gridline)" data-incl>
                       {r.tier ? formatCount(r.tier.includedUnits) : '—'}
                     </td>
                     <td class="border-b py-2.5 text-right align-top font-semibold tabular-nums" style="border-color: var(--gridline)" data-tprice>
-                      {r.price === null ? 'Custom' : formatUSD(r.price)}
+                      {r.price === null ? 'Not priced' : formatUSD(r.price)}
                     </td>
                   </tr>
                 ))
@@ -276,18 +297,19 @@ const description =
             </tbody>
           </table>
         </div>
-        <p id="tier-notes" class="mt-3 space-y-1 text-xs" style="color: var(--text-muted)"></p>
+        <p id="tier-notes" class="mt-3 text-xs" style="color: var(--text-muted)"></p>
       </section>
 
       <!-- ── Why the numbers differ ─────────────────────────────────── -->
       <section class="mt-10 rounded-xl border p-5" style="background: var(--surface-1); border-color: var(--border)">
         <h2 class="text-sm font-medium">Why these aren't apples to apples</h2>
         <p class="mt-2 text-sm" style="color: var(--text-secondary)">
-          Zapier bills per <strong>action step</strong>, Make per <strong>module
-          operation</strong>, and n8n per <strong>whole workflow run</strong>. A
-          6-step workflow firing once costs ~6 Zapier tasks but only 1 n8n
-          execution — which is why the "avg. steps per workflow" input moves n8n's
-          price so much, and why comparing raw plan prices is misleading.
+          Zapier bills per <strong>action step</strong>, Make per
+          <strong>credit</strong> (one module execution), and n8n per
+          <strong>whole workflow run</strong>. A 6-step workflow firing once costs
+          ~6 Zapier tasks and ~6 Make credits, but only 1 n8n execution — which is
+          why the "avg. steps per workflow" input moves n8n's price so much, and
+          why comparing raw plan prices is misleading.
         </p>
         <ul class="mt-3 space-y-1.5 text-sm" style="color: var(--text-secondary)">
           {
@@ -303,12 +325,39 @@ const description =
         </ul>
       </section>
 
+      <!-- ── Known gaps in the pricing data ─────────────────────────── -->
+      <section class="mt-6 rounded-xl border p-5" style="background: var(--surface-1); border-color: var(--border)">
+        <h2 class="text-sm font-medium">Pricing we haven't captured yet</h2>
+        <p class="mt-2 text-sm" style="color: var(--text-secondary)">
+          These plans exist but their volume-to-price mapping isn't recorded here,
+          so the calculator will never quote them. Check the vendor directly.
+        </p>
+        <ul class="mt-3 space-y-2 text-sm" style="color: var(--text-secondary)">
+          {
+            platformsWithGaps.map((p) => (
+              <li>
+                <a href={p.pricingUrl} target="_blank" rel="noopener noreferrer" class="font-medium underline">
+                  {p.name}
+                </a>
+                <ul class="mt-1 space-y-0.5">
+                  {p.unverifiedPlans.map((u) => (
+                    <li class="flex gap-2 text-xs" style="color: var(--text-muted)">
+                      <span aria-hidden="true">·</span>
+                      <span><strong>{u.name}</strong> — {u.from}. {u.note}</span>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))
+          }
+        </ul>
+      </section>
+
       <!-- ── Footer ─────────────────────────────────────────────────── -->
       <footer class="mt-10 border-t pt-5 text-xs" style="border-color: var(--gridline); color: var(--text-muted)">
         <p>
-          Estimates only, for planning. Pricing snapshot last verified
-          <strong>{LAST_VERIFIED}</strong> — confirm against each vendor before
-          committing:
+          Estimates only, for planning. Pricing verified
+          <strong>{LAST_VERIFIED}</strong> against:
           {
             PLATFORMS.map((p, i) => (
               <>
@@ -328,8 +377,14 @@ const description =
     </main>
 
     <script>
-      import { compare, formatUSD, formatCount, type Inputs } from '../lib/calc';
-      import { PLATFORMS, DEFAULTS, type BillingCycle } from '../config/pricing';
+      import {
+        compare,
+        formatUSD,
+        formatCount,
+        unpricedLabel,
+        type Inputs,
+      } from '../lib/calc';
+      import { DEFAULTS, type BillingCycle } from '../config/pricing';
 
       const $ = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 
@@ -369,18 +424,30 @@ const description =
 
       function render() {
         const inputs = readInputs();
-        const { results, winner, savingVsNext, maxPrice } = compare(inputs);
+        const { results, winner, savingVsNext, maxPrice, isPartial, unpriced } =
+          compare(inputs);
 
         // Verdict
-        $('#verdict-name').textContent = winner?.platform.name ?? 'No published tier fits';
+        $('#verdict-name').textContent =
+          winner?.platform.name ?? 'Nothing we can price';
         $('#verdict-price').textContent = winner
           ? `at ${formatUSD(winner.price!)}/mo`
           : '';
         $('#verdict-detail').textContent = !winner
-          ? 'Every platform needs a custom enterprise quote at this volume.'
+          ? 'No platform has a verified plan covering this usage.'
           : savingVsNext && savingVsNext > 0
             ? `Saves ${formatUSD(savingVsNext)}/mo versus the next cheapest option.`
             : 'Tied with the next cheapest option.';
+
+        // Partial-comparison notice
+        const notice = $<HTMLElement>('#partial-notice');
+        notice.style.display = isPartial ? 'block' : 'none';
+        if (isPartial) {
+          $('#partial-text').textContent =
+            `Partial comparison — ${unpriced.length} platform` +
+            `${unpriced.length === 1 ? '' : 's'} could not be priced from ` +
+            `verified data: ${unpriced.map((u) => u.platform.name).join(', ')}.`;
+        }
 
         const notes: string[] = [];
 
@@ -390,6 +457,7 @@ const description =
           const isWinner = r.platform.id === winner?.platform.id;
 
           // Bar geometry + emphasis color (winner accented, rest recede).
+          // Unpriced platforms get no bar at all — there is no number to draw.
           const pct =
             r.price === null || maxPrice === 0
               ? 0
@@ -398,22 +466,23 @@ const description =
           bar.style.background = isWinner ? 'var(--accent)' : 'var(--deemphasis)';
 
           row.querySelector('[data-price]')!.textContent =
-            r.price === null ? 'Custom quote' : formatUSD(r.price);
+            r.price === null ? 'Not priced' : formatUSD(r.price);
 
           row.querySelector('[data-detail]')!.textContent = r.tier
             ? `${r.tier.name} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}` +
               (r.workflowBound ? ' · forced up by your workflow count' : '')
-            : r.platform.aboveTopTier;
+            : `${unpricedLabel(r)} · needs ${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}`;
 
           // Table
           const trow = document.querySelector(`[data-trow="${r.platform.id}"]`)!;
           trow.querySelector('[data-tier]')!.textContent = r.tier?.name ?? '—';
-          trow.querySelector('[data-need]')!.textContent = formatCount(r.neededUnits);
+          trow.querySelector('[data-need]')!.textContent =
+            `${formatCount(r.neededUnits)} ${r.platform.unitLabel.plural}`;
           trow.querySelector('[data-incl]')!.textContent = r.tier
             ? formatCount(r.tier.includedUnits)
             : '—';
           trow.querySelector('[data-tprice]')!.textContent =
-            r.price === null ? 'Custom' : formatUSD(r.price);
+            r.price === null ? 'Not priced' : formatUSD(r.price);
 
           for (const n of r.notes) notes.push(`${r.platform.name}: ${n}`);
         }

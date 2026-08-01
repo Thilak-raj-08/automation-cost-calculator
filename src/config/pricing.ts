@@ -3,47 +3,57 @@
  *  PRICING CONFIG — the only file you need to edit when vendors change prices.
  * ============================================================================
  *
- *  ⚠️  VERIFY BEFORE PUBLISHING. Every number below is a hardcoded snapshot.
- *      These three vendors reprice often. Check each `pricingUrl` and bump
- *      `LAST_VERIFIED` when you do.
- *
  *  ---------------------------------------------------------------------
  *  THE UNIT PROBLEM — read this before changing anything
  *  ---------------------------------------------------------------------
  *  The platforms do NOT bill in the same unit:
  *
  *    Zapier  "task"       = one ACTION STEP executed
- *    Make    "operation"  = one MODULE executed          (≈ same as a step)
- *    n8n     "execution"  = one ENTIRE WORKFLOW RUN      (any number of nodes)
+ *    Make    "credit"     = one MODULE execution        (≈ same as a step)
+ *    n8n     "execution"  = one ENTIRE WORKFLOW RUN     (any number of nodes)
  *
- *  A 6-step workflow run once costs 6 Zapier tasks, ~6 Make ops, but only
+ *  A 6-step workflow run once costs 6 Zapier tasks, ~6 Make credits, but only
  *  1 n8n execution. Feeding one raw number to all three makes n8n look
  *  ~5-10x more expensive than it is. Most published comparison calculators
  *  make exactly this mistake.
  *
- *  So we normalize on STEPS EXECUTED PER MONTH (= Zapier tasks = Make ops)
+ *  So we normalize on STEPS EXECUTED PER MONTH (= Zapier tasks = Make credits)
  *  and each platform declares how to convert. See `unitsFromSteps`.
+ *
  *  ---------------------------------------------------------------------
+ *  VERIFIED vs UNCAPTURED — why there are two lists per platform
+ *  ---------------------------------------------------------------------
+ *  `tiers[]`           Volume tiers with a CONFIRMED volume→price mapping.
+ *                      The calculator prices ONLY from these.
+ *  `unverifiedPlans[]` Plans known to exist whose volume→price mapping has
+ *                      not been captured yet. Display-only context. The
+ *                      engine never touches them.
+ *
+ *  This split is the safety mechanism: a price can only ever be shown if it
+ *  came from a `tiers[]` entry. When usage exceeds the largest verified tier
+ *  the UI says so and links the vendor, rather than extrapolating.
+ *
+ *  To add captured volume tiers later, just push entries into `tiers[]` —
+ *  keep them ordered cheapest → most expensive — and drop the corresponding
+ *  `unverifiedPlans[]` entry.
  */
-
-/** Date the numbers below were last checked against the vendors' pricing pages. */
-export const LAST_VERIFIED = '2026-05-01';
 
 /**
- * n8n publishes in EUR. Used to convert its tiers to USD for comparison.
- * Update alongside the tiers — a stale rate quietly skews the verdict.
+ * Date every `tiers[]` entry below was last confirmed against the vendors'
+ * own pricing pages. Single source of truth — rendered in the UI.
  */
-export const EUR_TO_USD = 1.09;
+export const LAST_VERIFIED = '2026-08-01';
 
-export type BillingUnit = 'task' | 'operation' | 'execution';
+export type BillingUnit = 'task' | 'credit' | 'execution';
 export type BillingCycle = 'monthly' | 'annual';
 
+/** A tier with a confirmed volume→price mapping. Safe to price from. */
 export interface Tier {
   id: string;
-  /** Shown in the results table, e.g. "Professional — 2k tasks". */
-  name: string;
   /** Plan family, for grouping in the UI. */
   plan: string;
+  /** Shown in the results table, e.g. "Core — 10k credits". */
+  name: string;
   /** USD/month when paying month-to-month. */
   monthly: number;
   /** USD/month equivalent when paying annually. null = no annual option. */
@@ -56,6 +66,15 @@ export interface Tier {
   notes?: string[];
 }
 
+/** A plan we know exists but cannot price. Never used for calculation. */
+export interface UnverifiedPlan {
+  name: string;
+  /** Entry price as published, e.g. "$19.99/mo annual", or "contact sales". */
+  from: string;
+  /** What specifically is missing. */
+  note: string;
+}
+
 export interface Platform {
   id: 'zapier' | 'make' | 'n8n-cloud' | 'n8n-selfhosted';
   name: string;
@@ -64,6 +83,8 @@ export interface Platform {
   unit: BillingUnit;
   unitLabel: { singular: string; plural: string };
   pricingUrl: string;
+  /** Host shown in the "check <vendor>" link text. */
+  pricingHost: string;
   /**
    * Converts normalized monthly steps into this platform's billing units.
    * `avgStepsPerWorkflow` only matters for per-run billing (n8n).
@@ -71,13 +92,13 @@ export interface Platform {
   unitsFromSteps: (monthlySteps: number, avgStepsPerWorkflow: number) => number;
   /** Ordered cheapest → most expensive. The engine picks the first that fits. */
   tiers: Tier[];
-  /** Shown when demand exceeds the largest tier. */
-  aboveTopTier: string;
+  /** Known plans without a captured volume→price mapping. Display only. */
+  unverifiedPlans: UnverifiedPlan[];
   /** Always-shown caveats about this platform's model. */
   caveats?: string[];
 }
 
-/** 1 step = 1 task = 1 operation. Identity conversion. */
+/** 1 step = 1 task = 1 credit. Identity conversion. */
 const perStep = (steps: number) => Math.ceil(steps);
 
 /** n8n bills per whole workflow run, so divide steps by workflow depth. */
@@ -86,7 +107,10 @@ const perRun = (steps: number, avgSteps: number) =>
 
 export const PLATFORMS: Platform[] = [
   // ==========================================================================
-  //  ZAPIER — billed per task (action step). Volume-bucketed within each plan.
+  //  ZAPIER — billed per task (action step).
+  //  Only the Free tier has a confirmed volume→price mapping. Professional
+  //  and Team publish "starting from" entry prices with no captured volume
+  //  ladder, so they sit in unverifiedPlans and cannot be priced.
   // ==========================================================================
   {
     id: 'zapier',
@@ -95,8 +119,8 @@ export const PLATFORMS: Platform[] = [
     unit: 'task',
     unitLabel: { singular: 'task', plural: 'tasks' },
     pricingUrl: 'https://zapier.com/pricing',
+    pricingHost: 'zapier.com/pricing',
     unitsFromSteps: perStep,
-    aboveTopTier: 'Above 100k tasks Zapier moves you to a custom Enterprise quote.',
     caveats: [
       'A "task" is one action step. A 6-step Zap firing once burns 5 tasks (the trigger is free).',
       'Filtered-out runs do not consume tasks; every executed action does.',
@@ -105,63 +129,111 @@ export const PLATFORMS: Platform[] = [
       {
         id: 'free',
         plan: 'Free',
-        name: 'Free',
+        name: 'Free — 100 tasks',
         monthly: 0,
         annual: 0,
         includedUnits: 100,
         maxWorkflows: 5,
         notes: ['Two-step Zaps only — no multi-step, no filters, no paths.'],
       },
-      { id: 'pro-750',  plan: 'Professional', name: 'Professional — 750 tasks',  monthly: 29.99, annual: 19.99, includedUnits: 750,    maxWorkflows: null },
-      { id: 'pro-2k',   plan: 'Professional', name: 'Professional — 2k tasks',   monthly: 73.50, annual: 49.00, includedUnits: 2_000,  maxWorkflows: null },
-      { id: 'pro-5k',   plan: 'Professional', name: 'Professional — 5k tasks',   monthly: 133.50, annual: 89.00, includedUnits: 5_000,  maxWorkflows: null },
-      { id: 'pro-10k',  plan: 'Professional', name: 'Professional — 10k tasks',  monthly: 193.50, annual: 129.00, includedUnits: 10_000, maxWorkflows: null },
-      { id: 'pro-20k',  plan: 'Professional', name: 'Professional — 20k tasks',  monthly: 283.50, annual: 189.00, includedUnits: 20_000, maxWorkflows: null },
-      { id: 'pro-50k',  plan: 'Professional', name: 'Professional — 50k tasks',  monthly: 433.50, annual: 289.00, includedUnits: 50_000, maxWorkflows: null },
-      { id: 'pro-100k', plan: 'Professional', name: 'Professional — 100k tasks', monthly: 598.50, annual: 399.00, includedUnits: 100_000, maxWorkflows: null },
+    ],
+    unverifiedPlans: [
+      {
+        name: 'Professional',
+        from: 'from $29.99/mo monthly · $19.99/mo annual',
+        note: 'Entry price only — per-task-volume tiers not yet captured.',
+      },
+      {
+        name: 'Team',
+        from: 'from $103.50/mo monthly · $69/mo annual',
+        note: 'Entry price only — per-task-volume tiers not yet captured.',
+      },
+      {
+        name: 'Enterprise',
+        from: 'contact sales',
+        note: 'Custom quote.',
+      },
     ],
   },
 
   // ==========================================================================
-  //  MAKE.COM — billed per operation (module execution). Also volume-bucketed.
+  //  MAKE.COM — billed per credit (module execution).
+  //  All three paid tiers are confirmed AT 10k CREDITS. Make's credit slider
+  //  goes higher (20k, 40k, 80k, 150k, 300k…) but those prices are not
+  //  captured, so 10k is the ceiling of the verified range.
   // ==========================================================================
   {
     id: 'make',
     name: 'Make.com',
-    tagline: 'Visual builder, cheapest per operation at low volume',
-    unit: 'operation',
-    unitLabel: { singular: 'operation', plural: 'operations' },
+    tagline: 'Visual builder, priced per credit',
+    unit: 'credit',
+    unitLabel: { singular: 'credit', plural: 'credits' },
     pricingUrl: 'https://www.make.com/en/pricing',
+    pricingHost: 'make.com/en/pricing',
     unitsFromSteps: perStep,
-    aboveTopTier: 'Above 800k operations Make moves you to a custom Enterprise quote.',
     caveats: [
-      'An "operation" is one module run. Iterators and array handling can multiply ops unexpectedly.',
-      'Core plan runs scenarios at 15-minute minimum intervals; Pro unlocks 1-minute.',
+      'A "credit" is one module run. Iterators and array handling can multiply credits unexpectedly.',
+      'Core runs scenarios at 15-minute minimum intervals; Pro unlocks 1-minute.',
     ],
     tiers: [
       {
         id: 'free',
         plan: 'Free',
-        name: 'Free',
+        name: 'Free — 1k credits',
         monthly: 0,
         annual: 0,
         includedUnits: 1_000,
         maxWorkflows: 2,
         notes: ['Max 2 active scenarios; 15-minute minimum interval.'],
       },
-      { id: 'core-10k',  plan: 'Core', name: 'Core — 10k ops',  monthly: 10.59, annual: 9.00,  includedUnits: 10_000,  maxWorkflows: null },
-      { id: 'core-20k',  plan: 'Core', name: 'Core — 20k ops',  monthly: 18.82, annual: 16.00, includedUnits: 20_000,  maxWorkflows: null },
-      { id: 'core-40k',  plan: 'Core', name: 'Core — 40k ops',  monthly: 34.12, annual: 29.00, includedUnits: 40_000,  maxWorkflows: null },
-      { id: 'core-80k',  plan: 'Core', name: 'Core — 80k ops',  monthly: 64.71, annual: 55.00, includedUnits: 80_000,  maxWorkflows: null },
-      { id: 'pro-150k',  plan: 'Pro',  name: 'Pro — 150k ops',  monthly: 116.47, annual: 99.00, includedUnits: 150_000, maxWorkflows: null, notes: ['Pro adds 1-minute intervals, priority execution, custom variables.'] },
-      { id: 'pro-300k',  plan: 'Pro',  name: 'Pro — 300k ops',  monthly: 210.59, annual: 179.00, includedUnits: 300_000, maxWorkflows: null },
-      { id: 'pro-800k',  plan: 'Pro',  name: 'Pro — 800k ops',  monthly: 494.12, annual: 420.00, includedUnits: 800_000, maxWorkflows: null },
+      {
+        id: 'core-10k',
+        plan: 'Core',
+        name: 'Core — 10k credits',
+        monthly: 10.59,
+        annual: 9.0,
+        includedUnits: 10_000,
+        maxWorkflows: null,
+      },
+      {
+        id: 'pro-10k',
+        plan: 'Pro',
+        name: 'Pro — 10k credits',
+        monthly: 18.82,
+        annual: 16.0,
+        includedUnits: 10_000,
+        maxWorkflows: null,
+        notes: ['Pro adds 1-minute intervals, priority execution, custom variables.'],
+      },
+      {
+        id: 'teams-10k',
+        plan: 'Teams',
+        name: 'Teams — 10k credits',
+        monthly: 34.12,
+        annual: 29.0,
+        includedUnits: 10_000,
+        maxWorkflows: null,
+        notes: ['Teams adds shared scenario folders and role-based access.'],
+      },
+    ],
+    unverifiedPlans: [
+      {
+        name: 'Higher credit volumes',
+        from: '20k · 40k · 80k · 150k · 300k credits',
+        note: 'Credit-slider prices above 10k not yet captured.',
+      },
+      {
+        name: 'Enterprise',
+        from: 'custom',
+        note: 'Custom quote.',
+      },
     ],
   },
 
   // ==========================================================================
-  //  n8n CLOUD — billed per EXECUTION (whole workflow run) + active-workflow cap.
-  //  Prices published in EUR; converted at EUR_TO_USD.
+  //  n8n CLOUD — billed per EXECUTION (whole workflow run).
+  //  All plans include unlimited users and workflows; ONLY execution volume
+  //  determines the plan. Prices published in USD.
   // ==========================================================================
   {
     id: 'n8n-cloud',
@@ -170,25 +242,63 @@ export const PLATFORMS: Platform[] = [
     unit: 'execution',
     unitLabel: { singular: 'execution', plural: 'executions' },
     pricingUrl: 'https://n8n.io/pricing',
+    pricingHost: 'n8n.io/pricing',
     unitsFromSteps: perRun,
-    aboveTopTier: 'Above 50k executions n8n moves you to a custom Enterprise quote.',
     caveats: [
       'One execution = one full workflow run regardless of node count. This is why n8n gets cheaper as workflows get longer.',
-      'Active-workflow caps are hard limits on the lower tiers — extra workflows must sit deactivated.',
-      `EUR prices converted at ${EUR_TO_USD} USD/EUR.`,
+      'All plans include unlimited users and workflows — only execution volume determines your plan.',
     ],
     tiers: [
-      { id: 'starter', plan: 'Starter', name: 'Starter — 2.5k executions', monthly: 24 * EUR_TO_USD, annual: 20 * EUR_TO_USD, includedUnits: 2_500, maxWorkflows: 5 },
-      { id: 'pro-10k', plan: 'Pro',     name: 'Pro — 10k executions',      monthly: 60 * EUR_TO_USD, annual: 50 * EUR_TO_USD, includedUnits: 10_000, maxWorkflows: 15 },
-      { id: 'pro-50k', plan: 'Pro',     name: 'Pro — 50k executions',      monthly: 120 * EUR_TO_USD, annual: 100 * EUR_TO_USD, includedUnits: 50_000, maxWorkflows: 50 },
+      {
+        id: 'starter',
+        plan: 'Starter',
+        name: 'Starter — 2.5k executions',
+        monthly: 24,
+        annual: 20,
+        includedUnits: 2_500,
+        maxWorkflows: null,
+        notes: ['Hosted by n8n.'],
+      },
+      {
+        id: 'pro-10k',
+        plan: 'Pro',
+        name: 'Pro — 10k executions',
+        monthly: 60,
+        annual: 50,
+        includedUnits: 10_000,
+        maxWorkflows: null,
+        notes: ['Hosted by n8n.'],
+      },
+      {
+        id: 'business-40k',
+        plan: 'Business',
+        name: 'Business — 40k executions',
+        monthly: 960,
+        annual: 800,
+        includedUnits: 40_000,
+        maxWorkflows: null,
+        notes: ['Self-hosted — you run the instance, unlike Starter and Pro.'],
+      },
+    ],
+    unverifiedPlans: [
+      {
+        name: 'Higher execution volumes',
+        from: 'above 40k executions',
+        note: 'Higher-volume options not yet captured.',
+      },
+      {
+        name: 'Enterprise',
+        from: 'contact sales',
+        note: 'Custom quote.',
+      },
     ],
   },
 
   // ==========================================================================
   //  n8n SELF-HOSTED — fair-code license, $0 software. You pay for a server.
   //  Included because for many small businesses it genuinely wins on price,
-  //  and omitting it would make the comparison misleading. The tradeoff is
-  //  real maintenance work, surfaced as a caveat rather than hidden.
+  //  and omitting it would make the comparison misleading.
+  //  NOTE: these are VPS ESTIMATES, not vendor-published prices.
   // ==========================================================================
   {
     id: 'n8n-selfhosted',
@@ -197,20 +307,53 @@ export const PLATFORMS: Platform[] = [
     unit: 'execution',
     unitLabel: { singular: 'execution', plural: 'executions' },
     pricingUrl: 'https://docs.n8n.io/hosting/',
+    pricingHost: 'docs.n8n.io/hosting',
     unitsFromSteps: perRun,
-    aboveTopTier: 'Scale further by resizing the server; there is no vendor cap.',
     caveats: [
-      'Software is free under the Sustainable Use License; the cost below is a VPS estimate, not a vendor price.',
+      'Software is free under the Sustainable Use License; the figures below are VPS estimates, not vendor prices.',
       'Excludes your time: updates, backups, monitoring, and debugging are yours.',
       'Unlimited workflows and executions — the ceiling is your server, not a plan.',
     ],
     tiers: [
-      { id: 'vps-small',  plan: 'Self-hosted', name: 'Small VPS (2 vCPU / 4GB)',  monthly: 12, annual: 12, includedUnits: 50_000,  maxWorkflows: null, notes: ['Comfortable for light-to-moderate workloads.'] },
-      { id: 'vps-medium', plan: 'Self-hosted', name: 'Medium VPS (4 vCPU / 8GB)', monthly: 24, annual: 24, includedUnits: 200_000, maxWorkflows: null },
-      { id: 'vps-large',  plan: 'Self-hosted', name: 'Large VPS (8 vCPU / 16GB)', monthly: 48, annual: 48, includedUnits: 1_000_000, maxWorkflows: null },
+      {
+        id: 'vps-small',
+        plan: 'Self-hosted',
+        name: 'Small VPS (2 vCPU / 4GB)',
+        monthly: 12,
+        annual: 12,
+        includedUnits: 50_000,
+        maxWorkflows: null,
+        notes: ['Server-capacity estimate, not a vendor price.'],
+      },
+      {
+        id: 'vps-medium',
+        plan: 'Self-hosted',
+        name: 'Medium VPS (4 vCPU / 8GB)',
+        monthly: 24,
+        annual: 24,
+        includedUnits: 200_000,
+        maxWorkflows: null,
+        notes: ['Server-capacity estimate, not a vendor price.'],
+      },
+      {
+        id: 'vps-large',
+        plan: 'Self-hosted',
+        name: 'Large VPS (8 vCPU / 16GB)',
+        monthly: 48,
+        annual: 48,
+        includedUnits: 1_000_000,
+        maxWorkflows: null,
+        notes: ['Server-capacity estimate, not a vendor price.'],
+      },
     ],
+    unverifiedPlans: [],
   },
 ];
+
+/** Largest volume a platform can be priced for, in its own billing unit. */
+export function maxVerifiedUnits(platform: Platform): number {
+  return platform.tiers.reduce((max, t) => Math.max(max, t.includedUnits), 0);
+}
 
 /** Defaults for the three inputs. */
 export const DEFAULTS = {
